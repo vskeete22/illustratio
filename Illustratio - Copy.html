@@ -1,0 +1,641 @@
+<!DOCTYPE html>
+<!-- saved from url=(0071)file:///C:/Users/verne/Downloads/illustratio-landing-v190324%20(2).html -->
+<html lang="en"><head><meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Illustratio</title>
+<!-- BUILD v190324 : parallax travel + cirrus + dustlanes + daynight -->
+<style>
+  :root{--parchment:#e8c79e;--parchment-dim:#a98b66;--ui-border:rgba(232,199,158,0.22);--ui-border-hover:rgba(232,199,158,0.5);}
+  *{box-sizing:border-box;margin:0;padding:0;}
+  html,body{width:100%;height:100%;background:#000;overflow:hidden;font-family:'Iowan Old Style','Palatino Linotype',Palatino,Georgia,serif;}
+  #stage{position:relative;width:100vw;height:100vh;}
+  canvas{position:absolute;inset:0;width:100%;height:100%;image-rendering:crisp-edges;}
+  .email{position:absolute;left:28px;bottom:24px;color:#fff;
+    font-family:ui-monospace,'SF Mono',monospace;font-size:13px;letter-spacing:0.04em;
+    text-decoration:none;opacity:0.95;padding:7px 13px;border-radius:999px;
+    background:rgba(8,10,20,0.42);backdrop-filter:blur(3px);-webkit-backdrop-filter:blur(3px);
+    text-shadow:0 1px 3px rgba(0,0,0,0.55);transition:background 0.3s,opacity 0.3s;}
+  .email:hover{background:rgba(8,10,20,0.62);opacity:1;}
+  .about{position:absolute;top:24px;right:28px;color:#fff;
+    font-family:ui-monospace,'SF Mono',monospace;font-size:12px;letter-spacing:0.13em;
+    text-transform:uppercase;text-decoration:none;opacity:0.95;padding:7px 14px;border-radius:999px;
+    background:rgba(8,10,20,0.42);backdrop-filter:blur(3px);-webkit-backdrop-filter:blur(3px);
+    text-shadow:0 1px 3px rgba(0,0,0,0.55);transition:background 0.3s,opacity 0.3s;}
+  .about:hover{background:rgba(8,10,20,0.62);opacity:1;}
+  button.ctl{background:transparent;border:1px solid var(--ui-border);color:var(--parchment);
+    font-family:ui-monospace,'SF Mono',monospace;font-size:11px;letter-spacing:0.08em;text-transform:uppercase;
+    padding:9px 14px;border-radius:999px;cursor:pointer;transition:border-color 0.25s,background 0.25s;}
+  button.ctl:hover{border-color:var(--ui-border-hover);background:rgba(232,199,158,0.06);}
+  button.ctl .dot{display:inline-block;width:6px;height:6px;border-radius:50%;margin-right:7px;background:currentColor;vertical-align:middle;}
+  button.sound{position:absolute;bottom:24px;right:28px;color:#fff;opacity:0.9;
+    background:rgba(8,10,20,0.42);backdrop-filter:blur(3px);-webkit-backdrop-filter:blur(3px);
+    border-color:rgba(255,255,255,0.25);text-shadow:0 1px 3px rgba(0,0,0,0.55);
+    transition:opacity 0.3s,background 0.25s;}
+  button.sound:hover{opacity:1;background:rgba(8,10,20,0.62);}
+</style>
+</head>
+<body>
+<div id="stage">
+  <canvas id="c" width="1910" height="915"></canvas>
+  <a class="email" href="mailto:info@illustratio.co">info@illustratio.co</a>
+  <a class="about" href="file:///C:/about">About</a>
+  <button class="ctl sound" id="soundToggle"><span class="dot"></span><span id="soundLbl">Sound: off</span></button>
+</div>
+<script>
+(function(){
+"use strict";
+var canvas=document.getElementById('c');
+var ctx=canvas.getContext('2d');
+var DPR=Math.min(window.devicePixelRatio||1,3);
+// film grain tile (regenerated occasionally)
+var grainCanvas=document.createElement('canvas');
+var grainCtx=grainCanvas.getContext('2d');
+var GRAIN_SIZE=160;
+grainCanvas.width=GRAIN_SIZE;grainCanvas.height=GRAIN_SIZE;
+var grainFrame=0;
+function regenGrain(){
+  var img=grainCtx.createImageData(GRAIN_SIZE,GRAIN_SIZE);
+  var d=img.data;
+  for(var i=0;i<d.length;i+=4){
+    var v=Math.random()*255;
+    d[i]=v;d[i+1]=v;d[i+2]=v;d[i+3]=255;
+  }
+  grainCtx.putImageData(img,0,0);
+}
+regenGrain();
+var W=0,H=0;
+function resize(){
+  W=window.innerWidth;H=window.innerHeight;
+  canvas.width=Math.round(W*DPR);canvas.height=Math.round(H*DPR);
+  ctx.setTransform(DPR,0,0,DPR,0,0);
+  buildStarField();buildMilkyWay();buildCirrus();buildMotes();
+}
+window.addEventListener('resize',resize);
+function lerp(a,b,t){return a+(b-a)*t;}
+function lerpC(c1,c2,t){return[lerp(c1[0],c2[0],t),lerp(c1[1],c2[1],t),lerp(c1[2],c2[2],t)];}
+function clamp(v,lo,hi){return Math.max(lo,Math.min(hi,v));}
+function ease(t){return t<0.5?2*t*t:1-Math.pow(-2*t+2,2)/2;}
+
+var CYCLE=48;
+function getCycle(t){
+  var p=(t%CYCLE)/CYCLE,mix,trans;
+  if(p<0.38){mix=0;trans=0;}
+  else if(p<0.56){mix=ease((p-0.38)/0.18);trans=Math.sin(((p-0.38)/0.18)*Math.PI);}
+  else if(p<0.88){mix=1;trans=0;}
+  else{mix=1-ease((p-0.88)/0.12);trans=Math.sin(((p-0.88)/0.12)*Math.PI);}
+  return{mix:mix,trans:trans};
+}
+
+// ── Realistic star field: magnitude distribution + stellar colors ──
+var starField=[];
+function buildStarField(){
+  starField=[];
+  for(var i=0;i<1250;i++){
+    // heavy-tailed magnitude: a handful of very bright stars, many faint
+    var mag=0.2+Math.pow(Math.random(),0.30)*6.6;
+    var brightness=Math.pow(2.512,-(mag-0.2)/2.0);
+    var sz=clamp(Math.pow(brightness,0.85)*3.4,0.14,4.2);
+    var bv=Math.random();
+    var col=bv<0.07?[148,168,255]:bv<0.20?[185,205,255]:bv<0.40?[220,232,255]:bv<0.60?[255,255,248]:bv<0.78?[255,242,195]:bv<0.90?[255,218,158]:[255,185,110];
+    var y=Math.random()*H;
+    starField.push({
+      x:Math.random()*W,y:y,r:sz,brightness:brightness,col:col,
+      phase:Math.random()*1000,
+      twSpeed:0.5+Math.random()*1.4,
+      extinct:Math.pow(y/H,2.5)*0.72,
+      // brighter stars get diffraction spikes
+      spike: brightness>0.62
+    });
+  }
+}
+
+// ── Realistic Milky Way: galactic core + arms + dust ──
+var mwParticles=[];
+function buildMilkyWay(){
+  mwParticles=[];
+  var bx0=W*0.05,by0=H*0.06,bx1=W*0.95,by1=H*0.85;
+  var bLen=Math.hypot(bx1-bx0,by1-by0);
+  var bDx=(bx1-bx0)/bLen,bDy=(by1-by0)/bLen;
+  var bPx=-bDy,bPy=bDx;
+  for(var i=0;i<3800;i++){
+    var t=Math.random();
+    var u1=Math.random(),u2=Math.random();
+    var gauss=Math.sqrt(-2*Math.log(u1+0.0001))*Math.cos(2*Math.PI*u2);
+    var coreP=Math.exp(-Math.pow(gauss/0.75,2));
+    var spread=gauss*(W*0.10);
+    var coreLong=Math.exp(-Math.pow((t-0.55)/0.16,2));
+    var x=bx0+bDx*t*bLen+bPx*spread;
+    var y=by0+bDy*t*bLen+bPy*spread;
+    if(x<-20||x>W+20||y<-20||y>H+20) continue;
+    var alpha=(0.04+coreP*0.35+coreLong*0.22)*(0.35+Math.random()*0.65);
+    var col;
+    if(coreP>0.80&&coreLong>0.45) col=[255,240,205];
+    else if(coreP>0.60) col=[205,215,255];
+    else if(Math.random()<0.25) col=[165,148,128];
+    else col=[222,218,208];
+    mwParticles.push({x:x,y:y,r:0.10+Math.random()*0.70,alpha:alpha,col:col,dark:false});
+  }
+  // Dark dust lanes (the Great Rift) — patches that subtract light
+  for(var d=0;d<900;d++){
+    var t2=Math.random();
+    var g2=(Math.random()+Math.random()+Math.random()-1.5);
+    // lanes cluster near band center, offset slightly to one side
+    var spread2=(g2*0.5+0.18)*(W*0.075);
+    var x2=bx0+bDx*t2*bLen+bPx*spread2;
+    var y2=by0+bDy*t2*bLen+bPy*spread2;
+    if(x2<-20||x2>W+20||y2<-20||y2>H+20) continue;
+    var coreL2=Math.exp(-Math.pow((t2-0.55)/0.22,2));
+    mwParticles.push({x:x2,y:y2,r:0.8+Math.random()*2.4,
+      alpha:(0.06+coreL2*0.16)*(0.4+Math.random()*0.6),col:[2,1,4],dark:true});
+  }
+}
+
+// ── near-field motes: fast foreground particles streaming past ──
+var motes=[];
+function buildMotes(){
+  motes=[];
+  for(var i=0;i<70;i++){
+    motes.push({x:Math.random()*W,y:Math.random()*H,
+      r:0.4+Math.random()*1.1,
+      depth:0.5+Math.random()*0.6, // parallax multiplier
+      a:0.04+Math.random()*0.10});
+  }
+}
+
+// ── high cirrus: soft streak fields built from many faint puffs ──
+var cirrusBands=[];
+function buildCirrus(){
+  cirrusBands=[];
+  var nBands=5;
+  for(var b=0;b<nBands;b++){
+    var cyBand=H*(0.06+Math.random()*0.40);
+    var angle=(Math.random()-0.5)*0.22;
+    var puffs=[];
+    var nPuffs=60+Math.floor(Math.random()*50);
+    var startX=Math.random()*W;
+    var bandLen=W*(0.35+Math.random()*0.45);
+    for(var p=0;p<nPuffs;p++){
+      var tt=p/nPuffs;
+      // along-band position with perpendicular scatter (thin streak)
+      var along=tt*bandLen;
+      var perp=(Math.random()-0.5)*H*0.045 + Math.sin(tt*9+b)*H*0.012;
+      // fade in/out at the ends
+      var envelope=Math.sin(tt*Math.PI);
+      puffs.push({
+        along:along, perp:perp,
+        r:H*(0.02+Math.random()*0.05),
+        a:(0.012+Math.random()*0.022)*envelope
+      });
+    }
+    cirrusBands.push({x:startX,y:cyBand,angle:angle,
+      drift:(0.3+Math.random()*0.5)*(Math.random()<0.5?-1:1),
+      puffs:puffs});
+  }
+}
+
+// ── King-profile cluster ──────────────────────────────
+var SHELLS=[
+  {n:38,rMin:0,rMax:0.055,szBase:2.0,szVar:1.8,lumBase:0.92,lumVar:0.08,jit:0.20},
+  {n:110,rMin:0.055,rMax:0.15,szBase:1.4,szVar:1.0,lumBase:0.80,lumVar:0.15,jit:0.50},
+  {n:220,rMin:0.15,rMax:0.32,szBase:0.90,szVar:0.70,lumBase:0.62,lumVar:0.25,jit:0.95},
+  {n:320,rMin:0.32,rMax:0.57,szBase:0.60,szVar:0.55,lumBase:0.42,lumVar:0.35,jit:1.60},
+  {n:360,rMin:0.57,rMax:0.80,szBase:0.42,szVar:0.40,lumBase:0.26,lumVar:0.40,jit:2.25},
+  {n:120,rMin:0.80,rMax:1.00,szBase:0.30,szVar:0.30,lumBase:0.14,lumVar:0.45,jit:3.10}
+];
+function colDay(r){if(r<0.055)return[220,228,240];if(r<0.15)return[200,212,232];if(r<0.32)return[185,200,222];if(r<0.57)return[172,188,212];if(r<0.80)return[160,175,202];return[148,163,192];}
+function colNight(r){if(r<0.055)return[255,255,248];if(r<0.15)return[255,248,215];if(r<0.32)return[255,238,175];if(r<0.57)return[255,222,140];if(r<0.80)return[255,208,110];return[255,195,88];}
+var stars=[];
+function makeStars(){
+  stars=[];
+  for(var s=0;s<SHELLS.length;s++){
+    var sh=SHELLS[s];
+    for(var i=0;i<sh.n;i++){
+      var u=Math.random(),rad=Math.sqrt(lerp(sh.rMin*sh.rMin,sh.rMax*sh.rMax,u));
+      rad=lerp(rad,sh.rMin+0.15*(sh.rMax-sh.rMin),0.3);rad=clamp(rad,sh.rMin,sh.rMax);
+      var theta=Math.acos(2*Math.random()-1);
+      var phi=Math.random()*Math.PI*2;
+      var sx=rad*Math.sin(theta)*Math.cos(phi);
+      var sy=rad*Math.sin(theta)*Math.sin(phi);
+      var sz=rad*Math.cos(theta);
+      stars.push({
+        x3:sx,y3:sy,z3:sz,r:rad,
+        size:sh.szBase+Math.random()*sh.szVar,
+        lum:sh.lumBase+Math.random()*sh.lumVar,
+        jit:sh.jit*(0.7+Math.random()*0.6),
+        seed:Math.random()*1000,
+        cDay:colDay(rad),cNight:colNight(rad)
+      });
+    }
+  }
+}
+makeStars();
+
+var BREATH_P_DAY=9.0,BREATH_P_NIGHT=6.0;
+var GAIT_P=5.8,GAIT_W=(2*Math.PI)/GAIT_P,HEADING_P=32;
+var cx=0,cy=0,initialized=false;
+var t0=performance.now();
+resize();
+
+function draw(now){
+  var t=(now-t0)/1000;
+  var cyc=getCycle(t);
+  var mix=cyc.mix,trans=cyc.trans;
+  // ── travel: the presence leads, the world streams past behind it ──
+  // A steady forward journey. Background scrolls opposite the heading.
+  var travelDist=t*42;                       // px/sec of apparent travel
+  var travelAngle=0.42;                       // direction of travel (down-right lead)
+  var travVX=Math.cos(travelAngle)*travelDist;
+  var travVY=Math.sin(travelAngle)*travelDist;
+
+  var bPeriod=lerp(BREATH_P_DAY,BREATH_P_NIGHT,mix);
+  var bPulse=0.5+0.5*Math.sin(t*(2*Math.PI)/bPeriod);
+  var heading=t*(2*Math.PI)/HEADING_P;
+  if(!initialized){cx=W*0.5;cy=H*0.5;initialized=true;}
+  var leadX=Math.min(W,H)*0.055;
+  var gait=0.60+0.40*Math.max(0,-Math.cos(t*GAIT_W));
+  cx=lerp(cx,W*0.5+Math.cos(heading)*leadX,0.014*gait);
+  cy=lerp(cy,H*0.5+Math.sin(heading)*leadX*0.18,0.014*gait);
+  var rX=Math.min(W,H)*0.152*(1+0.055*bPulse);
+  var rY=rX*1.28,rMax=Math.max(rX,rY);
+
+  // ══════════════════════════════════════════════════════════
+  // DAY SKY — Physically accurate Sinai midday
+  // Rayleigh scattering: deepest blue at zenith, bleaches at horizon
+  // Sun visible as brilliant disk with aureole and Mie halo
+  // ══════════════════════════════════════════════════════════
+  if(mix<0.999){
+    var da=1-mix;ctx.globalAlpha=da;
+
+    // Sky: multi-stop Rayleigh gradient — deeper/more violet at zenith than most expect
+    var skyG=ctx.createLinearGradient(0,0,0,H);
+    skyG.addColorStop(0,   '#050c35'); // zenith: very deep indigo-blue
+    skyG.addColorStop(0.06,'#0a1550'); // upper sky
+    skyG.addColorStop(0.18,'#102070'); // deep cobalt
+    skyG.addColorStop(0.34,'#1c48a8'); // rich royal blue
+    skyG.addColorStop(0.52,'#2e6cc2'); // clear mid blue
+    skyG.addColorStop(0.70,'#559fd8'); // lighter azure
+    skyG.addColorStop(0.85,'#98c8e5'); // pale near-horizon
+    skyG.addColorStop(1,   '#c8e0f0'); // bleached horizon
+    ctx.fillStyle=skyG;ctx.fillRect(0,0,W,H);
+
+    // Sun disk — upper right quadrant, dazzling white
+    var sunX=W*0.76,sunY=H*0.10;
+    // Soft sun corona
+    var corona=ctx.createRadialGradient(sunX,sunY,W*0.012,sunX,sunY,W*0.22);
+    corona.addColorStop(0,  'rgba(255,252,240,0.55)');
+    corona.addColorStop(0.08,'rgba(255,248,225,0.28)');
+    corona.addColorStop(0.25,'rgba(255,240,205,0.12)');
+    corona.addColorStop(0.55,'rgba(255,230,185,0.04)');
+    corona.addColorStop(1,  'rgba(255,220,170,0)');
+    ctx.fillStyle=corona;ctx.fillRect(0,0,W,H*0.55);
+
+    // Sun disk hard point
+    var disk=ctx.createRadialGradient(sunX,sunY,0,sunX,sunY,W*0.018);
+    disk.addColorStop(0,'rgba(255,255,255,1)');
+    disk.addColorStop(0.5,'rgba(255,255,235,0.85)');
+    disk.addColorStop(1,'rgba(255,252,220,0)');
+    ctx.fillStyle=disk;ctx.fillRect(sunX-W*0.03,sunY-H*0.04,W*0.06,H*0.08);
+
+    // Mie forward scattering: sky brightens in wide arc around sun
+    var mie=ctx.createRadialGradient(sunX,sunY,0,sunX,sunY,W*0.85);
+    mie.addColorStop(0,  'rgba(230,238,250,0.20)');
+    mie.addColorStop(0.2,'rgba(215,228,245,0.10)');
+    mie.addColorStop(0.5,'rgba(195,215,240,0.04)');
+    mie.addColorStop(1,  'rgba(175,205,235,0)');
+    ctx.fillStyle=mie;ctx.fillRect(0,0,W,H);
+
+    // Desert aerosol haze: warm tan layer at low elevations
+    var haze=ctx.createLinearGradient(0,H*0.65,0,H);
+    haze.addColorStop(0,'rgba(205,198,178,0)');
+    haze.addColorStop(0.4,'rgba(215,205,182,0.16)');
+    haze.addColorStop(0.75,'rgba(225,212,188,0.30)');
+    haze.addColorStop(1,  'rgba(235,220,195,0.45)');
+    ctx.fillStyle=haze;ctx.fillRect(0,H*0.65,W,H*0.35);
+
+    // Soft high cirrus — many faint overlapping puffs, wind-stretched
+    ctx.save();
+    ctx.globalCompositeOperation='screen';
+    for(var cb=0;cb<cirrusBands.length;cb++){
+      var band=cirrusBands[cb];
+      var driftX=(t*band.drift*6);
+      ctx.save();
+      ctx.translate(band.x+driftX,band.y);
+      ctx.rotate(band.angle);
+      for(var pp=0;pp<band.puffs.length;pp++){
+        var pf=band.puffs[pp];
+        var px=pf.along - (band.puffs.length>0?band.puffs[band.puffs.length-1].along*0.5:0);
+        var slowMove=Math.sin(t*0.15+pp*0.3)*H*0.004;
+        var pg3=ctx.createRadialGradient(px,pf.perp+slowMove,0,px,pf.perp+slowMove,pf.r);
+        pg3.addColorStop(0,'rgba(255,255,255,'+(pf.a*da).toFixed(3)+')');
+        pg3.addColorStop(1,'rgba(255,255,255,0)');
+        ctx.fillStyle=pg3;
+        ctx.beginPath();ctx.arc(px,pf.perp+slowMove,pf.r,0,Math.PI*2);ctx.fill();
+      }
+      ctx.restore();
+    }
+    ctx.restore();
+
+    // Cloud shade: darkens sky directly under the covering
+    var shade=ctx.createRadialGradient(cx,cy,rMax*0.25,cx,cy,rMax*3.0);
+    shade.addColorStop(0,'rgba(4,10,38,0.20)');
+    shade.addColorStop(0.35,'rgba(4,10,38,0.09)');
+    shade.addColorStop(1,'rgba(4,10,38,0)');
+    ctx.fillStyle=shade;ctx.fillRect(0,0,W,H);
+
+    ctx.globalAlpha=1;
+  }
+
+  // ══════════════════════════════════════════════════════════
+  // NIGHT SKY — Bortle Class 1-2, Sinai desert
+  // Near-perfect darkness. Airglow. Milky Way dominant.
+  // ══════════════════════════════════════════════════════════
+  if(mix>0.001){
+    ctx.globalAlpha=mix;
+
+    // Sky base: pure near-black with barely perceptible blue
+    var nightG=ctx.createLinearGradient(0,0,0,H);
+    nightG.addColorStop(0,  '#000004');
+    nightG.addColorStop(0.4,'#000006');
+    nightG.addColorStop(0.8,'#010008');
+    nightG.addColorStop(1,  '#020106');
+    ctx.fillStyle=nightG;ctx.fillRect(0,0,W,H);
+
+    // Natural airglow: OI emission at 557.7nm — green band above horizon
+    var airglow=ctx.createLinearGradient(0,H*0.50,0,H);
+    airglow.addColorStop(0,'rgba(0,0,0,0)');
+    airglow.addColorStop(0.35,'rgba(18,42,16,0.14)');
+    airglow.addColorStop(0.68,'rgba(24,52,20,0.22)');
+    airglow.addColorStop(0.88,'rgba(16,38,14,0.14)');
+    airglow.addColorStop(1,'rgba(8,20,6,0.06)');
+    ctx.fillStyle=airglow;ctx.fillRect(0,H*0.50,W,H*0.50);
+
+    // Zodiacal light cone
+    var zodG=ctx.createLinearGradient(W*0.6,H,W*0.15,H*0.25);
+    zodG.addColorStop(0,'rgba(255,248,220,0.07)');
+    zodG.addColorStop(0.5,'rgba(248,240,210,0.028)');
+    zodG.addColorStop(1,'rgba(238,232,202,0)');
+    ctx.fillStyle=zodG;ctx.fillRect(0,0,W,H);
+
+    ctx.globalAlpha=1;
+
+    // ── Milky Way: diffuse glow base ─────────────────────────
+    var mwAlpha=mix*(1-trans*0.4);
+    // Background nebulosity — unresolved stars
+    var mwDiffuse=ctx.createLinearGradient(W*0.05,H*0.06,W*0.95,H*0.85);
+    mwDiffuse.addColorStop(0,  'rgba(0,0,0,0)');
+    mwDiffuse.addColorStop(0.18,'rgba(28,32,52,'+( mwAlpha*0.12).toFixed(3)+')');
+    mwDiffuse.addColorStop(0.40,'rgba(38,34,55,'+(mwAlpha*0.18).toFixed(3)+')');
+    mwDiffuse.addColorStop(0.55,'rgba(52,44,60,'+(mwAlpha*0.24).toFixed(3)+')'); // galactic center
+    mwDiffuse.addColorStop(0.70,'rgba(36,32,52,'+(mwAlpha*0.15).toFixed(3)+')');
+    mwDiffuse.addColorStop(0.88,'rgba(22,26,42,'+(mwAlpha*0.08).toFixed(3)+')');
+    mwDiffuse.addColorStop(1,  'rgba(0,0,0,0)');
+    ctx.fillStyle=mwDiffuse;ctx.fillRect(0,0,W,H);
+
+    // Galactic core bulge — visibly brighter warm cloud
+    var gcx2=W*0.05+(W*0.95-W*0.05)*0.55, gcy2=H*0.06+(H*0.85-H*0.06)*0.55;
+    var gcGlow=ctx.createRadialGradient(gcx2,gcy2,0,gcx2,gcy2,W*0.20);
+    gcGlow.addColorStop(0,  'rgba(255,232,175,'+(mwAlpha*0.16).toFixed(3)+')');
+    gcGlow.addColorStop(0.28,'rgba(220,195,145,'+(mwAlpha*0.08).toFixed(3)+')');
+    gcGlow.addColorStop(0.60,'rgba(180,158,115,'+(mwAlpha*0.03).toFixed(3)+')');
+    gcGlow.addColorStop(1,  'rgba(140,120,88,0)');
+    ctx.fillStyle=gcGlow;ctx.fillRect(0,0,W,H);
+
+    // MW particle layer (bright stars additively, dark lanes subtractively)
+    for(var m=0;m<mwParticles.length;m++){
+      var mp=mwParticles[m];
+      var mpx=((mp.x - travVX*0.10)%W+W)%W;
+      var mpy=((mp.y - travVY*0.10)%H+H)%H;
+      var dxM=mpx-cx,dyM=mpy-cy;
+      var distM=Math.hypot(dxM,dyM);
+      var wash=clamp((distM-rMax*1.2)/(rMax*1.8),0,1);
+      var a=mp.alpha*wash*mwAlpha;
+      if(a<0.006) continue;
+      if(mp.dark){
+        // dust lane: paint near-black with destination-out to carve the rift
+        ctx.globalCompositeOperation='destination-out';
+        ctx.globalAlpha=clamp(a*0.9,0,0.6);
+        var dg=ctx.createRadialGradient(mp.x,mp.y,0,mp.x,mp.y,mp.r);
+        dg.addColorStop(0,'rgba(0,0,0,1)');
+        dg.addColorStop(1,'rgba(0,0,0,0)');
+        ctx.fillStyle=dg;
+        ctx.beginPath();ctx.arc(mp.x,mp.y,mp.r,0,Math.PI*2);ctx.fill();
+        ctx.globalCompositeOperation='source-over';
+      } else {
+        ctx.globalAlpha=clamp(a,0,0.92);
+        ctx.fillStyle='rgb('+mp.col.join(',')+')';
+        ctx.beginPath();ctx.arc(mp.x,mp.y,mp.r,0,Math.PI*2);ctx.fill();
+      }
+    }
+    ctx.globalAlpha=1;
+
+    // ── Background stars ──────────────────────────────────────
+    for(var s=0;s<starField.length;s++){
+      var st=starField[s];
+      // parallax: background stars drift opposite travel (slow, distant layer)
+      var pxOff=((st.x - travVX*0.18)%W+W)%W;
+      var pyOff=((st.y - travVY*0.18)%H+H)%H;
+      // chromatic twinkle: stronger near horizon (high extinct), with slight color shimmer
+      var twBase=Math.sin(t*0.68*st.twSpeed+st.phase);
+      var twFast=Math.sin(t*3.1*st.twSpeed+st.phase*1.7);
+      var twAmt=0.30+st.extinct*0.55; // horizon stars twinkle harder
+      var tw=1-twAmt + twAmt*(0.5+0.5*twBase)*(0.7+0.3*(0.5+0.5*twFast));
+      var dxS=pxOff-cx,dyS=pyOff-cy;
+      var distS=Math.hypot(dxS,dyS);
+      var starWash=clamp((distS-rMax*1.4)/(rMax*2.0),0,1);
+      var sa=mix*starWash*(1-st.extinct)*(0.26+0.62*st.brightness)*tw*(1-trans*0.55);
+      if(sa<0.013) continue;
+      // chromatic aberration on twinkling horizon stars: shift color toward red/blue
+      var shimmer=st.extinct*twFast*22;
+      var rc=clamp(st.col[0]+shimmer,0,255), gc=st.col[1], bc=clamp(st.col[2]-shimmer,0,255);
+      ctx.globalAlpha=clamp(sa,0,1);
+      ctx.fillStyle='rgb('+Math.round(rc)+','+gc+','+Math.round(bc)+')';
+      ctx.beginPath();ctx.arc(pxOff,pyOff,st.r*(0.75+0.35*tw),0,Math.PI*2);ctx.fill();
+      // Bright star PSF halos + diffraction spikes
+      if(st.r>1.5&&sa>0.5){
+        var sg2=ctx.createRadialGradient(pxOff,pyOff,0,pxOff,pyOff,st.r*6);
+        sg2.addColorStop(0,'rgba('+st.col.join(',')+','+(sa*0.32).toFixed(3)+')');
+        sg2.addColorStop(1,'rgba('+st.col.join(',')+',0)');
+        ctx.globalAlpha=1;ctx.fillStyle=sg2;
+        ctx.beginPath();ctx.arc(pxOff,pyOff,st.r*6,0,Math.PI*2);ctx.fill();
+        if(st.spike&&sa>0.6){
+          var spLen=st.r*(7+st.brightness*9)*tw;
+          ctx.strokeStyle='rgba('+st.col.join(',')+','+(sa*0.22).toFixed(3)+')';
+          ctx.lineWidth=0.6;
+          for(var arm=0;arm<2;arm++){
+            var aa=arm*Math.PI*0.5;
+            var g3=ctx.createLinearGradient(pxOff-Math.cos(aa)*spLen,pyOff-Math.sin(aa)*spLen,pxOff+Math.cos(aa)*spLen,pyOff+Math.sin(aa)*spLen);
+            g3.addColorStop(0,'rgba('+st.col.join(',')+',0)');
+            g3.addColorStop(0.5,'rgba('+st.col.join(',')+','+(sa*0.28).toFixed(3)+')');
+            g3.addColorStop(1,'rgba('+st.col.join(',')+',0)');
+            ctx.strokeStyle=g3;
+            ctx.beginPath();
+            ctx.moveTo(pxOff-Math.cos(aa)*spLen,pyOff-Math.sin(aa)*spLen);
+            ctx.lineTo(pxOff+Math.cos(aa)*spLen,pyOff+Math.sin(aa)*spLen);
+            ctx.stroke();
+          }
+        }
+      }
+    }
+    ctx.globalAlpha=1;
+
+    // Fire sky glow
+    var fireG=ctx.createRadialGradient(cx,cy,0,cx,cy,rMax*5.5);
+    fireG.addColorStop(0,  'rgba(255,152,42,'+(mix*(0.22+0.08*bPulse)).toFixed(3)+')');
+    fireG.addColorStop(0.18,'rgba(255,128,36,'+(mix*(0.10+0.04*bPulse)).toFixed(3)+')');
+    fireG.addColorStop(0.48,'rgba(255,105,28,'+(mix*0.04).toFixed(3)+')');
+    fireG.addColorStop(1,  'rgba(255,80,18,0)');
+    ctx.fillStyle=fireG;ctx.fillRect(0,0,W,H);
+  }
+
+  // ══════════════════════════════════════════════════════════
+  // CLUSTER
+  // ══════════════════════════════════════════════════════════
+  ctx.globalCompositeOperation='lighter';
+  var cR=rX*0.07*(0.88+0.20*bPulse);
+  var cg=ctx.createRadialGradient(cx,cy,0,cx,cy,cR*3);
+  cg.addColorStop(0,'rgba(255,255,255,'+(0.42+0.20*bPulse).toFixed(3)+')');
+  cg.addColorStop(0.28,'rgba(248,250,255,'+(0.16+0.10*bPulse).toFixed(3)+')');
+  cg.addColorStop(1,'rgba(220,230,255,0)');
+  ctx.fillStyle=cg;ctx.fillRect(0,0,W,H);
+
+  // Full orbit: the camera travels the entire sphere over time so the
+  // viewer genuinely sees it from below, above, both sides, and front.
+  // rotY sweeps a continuous 360° (side to side, full revolution).
+  // rotX sweeps a full ±90°+ range (below → level → above and back).
+  var rotY=t*0.07;
+  var rotX=Math.sin(t*0.04)*0.28+0.12;
+  var cosY=Math.cos(rotY),sinY=Math.sin(rotY);
+  var cosX=Math.cos(rotX),sinX=Math.sin(rotX);
+
+  // build a render list with projected depth, then sort back-to-front
+  var rl=[];
+  for(var i=0;i<stars.length;i++){
+    var s=stars[i];
+    // rotate around Y
+    var x1=s.x3*cosY - s.z3*sinY;
+    var z1=s.x3*sinY + s.z3*cosY;
+    var y1=s.y3;
+    // rotate around X
+    var y2=y1*cosX - z1*sinX;
+    var z2=y1*sinX + z1*cosX;
+    var x2=x1;
+    rl.push({s:s,px:x2,py:y2,depth:z2});
+  }
+  rl.sort(function(a,b){return a.depth-b.depth;}); // far first
+
+  for(var k=0;k<rl.length;k++){
+    var item=rl[k], s=item.s;
+    // perspective: depth in [-1,1]; nearer = bigger/brighter
+    var depthN=(item.depth+1)/2; // 0=far,1=near
+    var persp=lerp(0.78,1.18,depthN);
+
+    var jx=(Math.random()-0.5)*s.jit, jy=(Math.random()-0.5)*s.jit;
+    var x=cx+item.px*rX*persp+jx;
+    var y=cy+item.py*rY*persp+jy;
+
+    var fr=lerp(lerp(0.04,0.38,Math.min(1,s.r)),lerp(0.08,0.68,Math.min(1,s.r)),mix);
+    var flicker=s.lum*(1-fr+Math.random()*fr*2.0);
+    if(Math.random()<lerp(0.001,0.004,mix)) flicker=Math.min(1,flicker+0.5);
+    flicker=clamp(flicker,0,1);
+
+    var col=lerpC(s.cDay,s.cNight,mix);
+    // depth fades far stars slightly (atmospheric/occlusion feel)
+    var depthFade=lerp(0.55,1.0,depthN);
+    var alpha=clamp(flicker*(0.75+0.25*bPulse)*depthFade,0,1);
+    if(alpha<0.035) continue;
+
+    var sz=s.size*persp;
+    if(sz>0.75&&alpha>0.22){
+      var psfR=sz*lerp(4.5,3.0,mix);
+      var pg=ctx.createRadialGradient(x,y,0,x,y,psfR);
+      pg.addColorStop(0,'rgba('+col.map(Math.round).join(',')+','+(alpha*0.38).toFixed(3)+')');
+      pg.addColorStop(0.5,'rgba('+col.map(Math.round).join(',')+','+(alpha*0.10).toFixed(3)+')');
+      pg.addColorStop(1,'rgba('+col.map(Math.round).join(',')+',0)');
+      ctx.fillStyle=pg;ctx.beginPath();ctx.arc(x,y,psfR,0,Math.PI*2);ctx.fill();
+    }
+    ctx.fillStyle='rgba('+col.map(Math.round).join(',')+','+alpha.toFixed(3)+')';
+    ctx.beginPath();ctx.arc(x,y,sz,0,Math.PI*2);ctx.fill();
+  }
+  ctx.globalCompositeOperation='source-over';
+
+  if(trans>0.02){
+    var tFlash=ctx.createRadialGradient(cx,cy,0,cx,cy,rMax*2.5);
+    tFlash.addColorStop(0,'rgba(255,255,255,'+(trans*0.25).toFixed(3)+')');
+    tFlash.addColorStop(0.4,'rgba(255,248,235,'+(trans*0.10).toFixed(3)+')');
+    tFlash.addColorStop(1,'rgba(255,240,220,0)');
+    ctx.fillStyle=tFlash;ctx.fillRect(0,0,W,H);
+  }
+
+  // near-field motes streaming past — fast parallax sells the forward travel
+  ctx.globalCompositeOperation='lighter';
+  for(var mo=0;mo<motes.length;mo++){
+    var mt=motes[mo];
+    var mx=((mt.x - travVX*mt.depth)%W+W)%W;
+    var my=((mt.y - travVY*mt.depth)%H+H)%H;
+    // dim motes near the cluster so they don't clutter it
+    var dC=Math.hypot(mx-cx,my-cy);
+    var fade=clamp((dC-rMax*1.1)/(rMax*1.4),0,1);
+    var col=mix<0.5?[180,200,255]:[255,200,150];
+    ctx.globalAlpha=mt.a*fade*0.6;
+    ctx.fillStyle='rgb('+col.join(',')+')';
+    ctx.beginPath();ctx.arc(mx,my,mt.r,0,Math.PI*2);ctx.fill();
+  }
+  ctx.globalAlpha=1;
+  ctx.globalCompositeOperation='source-over';
+
+  if(window.__aud&&window.__aud.onFrame) window.__aud.onFrame(bPulse,mix,trans);
+  requestAnimationFrame(draw);
+}
+requestAnimationFrame(draw);
+
+// ── sound ──────────────────────────────────────────────
+var soundToggle=document.getElementById('soundToggle'),soundLbl=document.getElementById('soundLbl');
+var audioCtx=null,soundOn=false,aud=null;
+function pinkify(a){var b0=0,b1=0,b2=0,b3=0,b4=0,b5=0,b6=0,o=new Float32Array(a.length);for(var i=0;i<a.length;i++){var w=a[i];b0=0.99886*b0+w*0.0555179;b1=0.99332*b1+w*0.0750759;b2=0.96900*b2+w*0.1538520;b3=0.86650*b3+w*0.3104856;b4=0.55000*b4+w*0.5329522;b5=-0.7616*b5-w*0.0168980;var p=b0+b1+b2+b3+b4+b5+b6+w*0.5362;b6=w*0.115926;o[i]=p*0.11;}return o;}
+function makeIR(d,dc){var r=audioCtx.sampleRate,l=Math.floor(r*d),b=audioCtx.createBuffer(2,l,r);for(var c=0;c<2;c++){var dd=b.getChannelData(c);for(var n=0;n<l;n++)dd[n]=(Math.random()*2-1)*Math.pow(1-n/l,dc);}return b;}
+function buildAudio(){
+  audioCtx=new(window.AudioContext||window.webkitAudioContext)();
+  var master=audioCtx.createGain();master.gain.value=0;master.connect(audioCtx.destination);
+  var conv=audioCtx.createConvolver();conv.buffer=makeIR(2.4,2.6);
+  var amb=audioCtx.createGain();amb.gain.value=1;amb.connect(master);
+  var bSzW=audioCtx.sampleRate*4,rawW=new Float32Array(bSzW);
+  for(var i=0;i<bSzW;i++)rawW[i]=Math.random()*2-1;
+  var wBuf=audioCtx.createBuffer(1,bSzW,audioCtx.sampleRate);wBuf.getChannelData(0).set(pinkify(rawW));
+  var wind=audioCtx.createBufferSource();wind.buffer=wBuf;wind.loop=true;
+  var wLP=audioCtx.createBiquadFilter();wLP.type='lowpass';wLP.frequency.value=300;wLP.Q.value=0.4;
+  var wG=audioCtx.createGain();wG.gain.value=0.0;wind.connect(wLP);wLP.connect(wG);wG.connect(amb);wG.connect(conv);wind.start();
+  var bSz=audioCtx.sampleRate*2,raw=new Float32Array(bSz);
+  for(var j=0;j<bSz;j++)raw[j]=Math.random()*2-1;
+  var nBuf=audioCtx.createBuffer(1,bSz,audioCtx.sampleRate);nBuf.getChannelData(0).set(raw);
+  var hiss=audioCtx.createBufferSource();hiss.buffer=nBuf;hiss.loop=true;
+  var hBP=audioCtx.createBiquadFilter();hBP.type='bandpass';hBP.frequency.value=3800;hBP.Q.value=0.38;
+  var hHS=audioCtx.createBiquadFilter();hHS.type='highshelf';hHS.frequency.value=6000;hHS.gain.value=-7;
+  var hG=audioCtx.createGain();hG.gain.value=0.0;hiss.connect(hBP);hBP.connect(hHS);hHS.connect(hG);hG.connect(amb);hiss.start();
+  var d1=audioCtx.createOscillator();d1.type='sine';d1.frequency.value=55;
+  var d2=audioCtx.createOscillator();d2.type='sine';d2.frequency.value=55.5;
+  var dG=audioCtx.createGain();dG.gain.value=0.0;d1.connect(dG);d2.connect(dG);dG.connect(amb);
+  var sub=audioCtx.createOscillator();sub.type='triangle';sub.frequency.value=27.5;
+  var sG=audioCtx.createGain();sG.gain.value=0.0;sub.connect(sG);sG.connect(amb);
+  d1.start();d2.start();sub.start();
+  aud={master:master,wG:wG,hG:hG,dG:dG,sG:sG,d1:d1,d2:d2,
+    onFrame:function(breath,mix,trans){
+      var now=audioCtx.currentTime;
+      wG.gain.setTargetAtTime((1-mix)*0.055*(0.7+0.5*breath),now,0.8);
+      hG.gain.setTargetAtTime(mix*0.09*(0.8+0.4*breath),now,0.8);
+      dG.gain.setTargetAtTime(mix*0.042*(0.75+0.38*breath),now,0.18);
+      sG.gain.setTargetAtTime(mix*0.026*(0.8+0.3*breath),now,0.18);
+      d1.frequency.setTargetAtTime(lerp(55,48,mix),now,2.0);d2.frequency.setTargetAtTime(lerp(55.5,48.5,mix),now,2.0);
+      if(trans>0.05) wG.gain.setTargetAtTime(trans*0.06,now,0.3);
+    }};window.__aud=aud;
+}
+soundToggle.addEventListener('click',function(){
+  soundOn=!soundOn;soundToggle.setAttribute('aria-pressed',String(soundOn));soundLbl.textContent=soundOn?'Sound: on':'Sound: off';
+  if(soundOn){if(!audioCtx)buildAudio();else audioCtx.resume();aud.master.gain.cancelScheduledValues(audioCtx.currentTime);aud.master.gain.linearRampToValueAtTime(1.0,audioCtx.currentTime+1.4);}
+  else if(audioCtx&&aud){aud.master.gain.cancelScheduledValues(audioCtx.currentTime);aud.master.gain.linearRampToValueAtTime(0.0,audioCtx.currentTime+0.8);}
+});
+})();
+</script>
+
+
+</body></html>
