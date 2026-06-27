@@ -33,14 +33,18 @@
     border-color:rgba(255,255,255,0.25);text-shadow:0 1px 3px rgba(0,0,0,0.55);
     transition:opacity 0.3s,background 0.25s;}
   button.sound:hover{opacity:1;background:rgba(8,10,20,0.62);}
+  .copyright{position:absolute;bottom:14px;left:50%;transform:translateX(-50%);
+    color:#fff;font-family:ui-monospace,'SF Mono',monospace;font-size:10px;
+    letter-spacing:0.10em;opacity:0.78;white-space:nowrap;pointer-events:none;
+    text-shadow:0 1px 4px rgba(0,0,0,0.6);}
 </style>
 </head>
 <body>
 <div id="stage">
   <canvas id="c" width="1910" height="915"></canvas>
   <a class="email" href="mailto:info@illustratio.co">info@illustratio.co</a>
-  <a class="about" href="file:///C:/about">About</a>
   <button class="ctl sound" id="soundToggle"><span class="dot"></span><span id="soundLbl">Sound: off</span></button>
+  <div class="copyright">© 2026 Illustratio. All rights reserved.</div>
 </div>
 <script>
 (function(){
@@ -267,16 +271,17 @@ function draw(now){
   if(mix<0.999){
     var da=1-mix;ctx.globalAlpha=da;
 
-    // Sky: multi-stop Rayleigh gradient — deeper/more violet at zenith than most expect
+    // Real clear-day sky as seen from the ground: true sky-blue overhead,
+    // softening to pale haze at the horizon (Rayleigh + atmospheric depth).
     var skyG=ctx.createLinearGradient(0,0,0,H);
-    skyG.addColorStop(0,   '#050c35'); // zenith: very deep indigo-blue
-    skyG.addColorStop(0.06,'#0a1550'); // upper sky
-    skyG.addColorStop(0.18,'#102070'); // deep cobalt
-    skyG.addColorStop(0.34,'#1c48a8'); // rich royal blue
-    skyG.addColorStop(0.52,'#2e6cc2'); // clear mid blue
-    skyG.addColorStop(0.70,'#559fd8'); // lighter azure
-    skyG.addColorStop(0.85,'#98c8e5'); // pale near-horizon
-    skyG.addColorStop(1,   '#c8e0f0'); // bleached horizon
+    skyG.addColorStop(0,   '#2a6fc4'); // zenith: clean deep sky-blue
+    skyG.addColorStop(0.12,'#3179c9'); // high sky
+    skyG.addColorStop(0.30,'#4189d2'); // upper-mid
+    skyG.addColorStop(0.50,'#559fdb'); // mid sky
+    skyG.addColorStop(0.68,'#79b8e6'); // lower-mid
+    skyG.addColorStop(0.83,'#a6d2ef'); // approaching horizon
+    skyG.addColorStop(0.93,'#cfe6f5'); // pale horizon haze
+    skyG.addColorStop(1,   '#e8f2f8'); // bright hazy horizon line
     ctx.fillStyle=skyG;ctx.fillRect(0,0,W,H);
 
     // Sun disk — upper right quadrant, dazzling white
@@ -298,20 +303,21 @@ function draw(now){
     ctx.fillStyle=disk;ctx.fillRect(sunX-W*0.03,sunY-H*0.04,W*0.06,H*0.08);
 
     // Mie forward scattering: sky brightens in wide arc around sun
-    var mie=ctx.createRadialGradient(sunX,sunY,0,sunX,sunY,W*0.85);
-    mie.addColorStop(0,  'rgba(230,238,250,0.20)');
-    mie.addColorStop(0.2,'rgba(215,228,245,0.10)');
-    mie.addColorStop(0.5,'rgba(195,215,240,0.04)');
-    mie.addColorStop(1,  'rgba(175,205,235,0)');
+    var mie=ctx.createRadialGradient(sunX,sunY,0,sunX,sunY,W*0.9);
+    mie.addColorStop(0,  'rgba(248,250,255,0.24)');
+    mie.addColorStop(0.2,'rgba(232,242,252,0.12)');
+    mie.addColorStop(0.5,'rgba(212,230,248,0.05)');
+    mie.addColorStop(1,  'rgba(195,220,242,0)');
     ctx.fillStyle=mie;ctx.fillRect(0,0,W,H);
 
-    // Desert aerosol haze: warm tan layer at low elevations
-    var haze=ctx.createLinearGradient(0,H*0.65,0,H);
-    haze.addColorStop(0,'rgba(205,198,178,0)');
-    haze.addColorStop(0.4,'rgba(215,205,182,0.16)');
-    haze.addColorStop(0.75,'rgba(225,212,188,0.30)');
-    haze.addColorStop(1,  'rgba(235,220,195,0.45)');
-    ctx.fillStyle=haze;ctx.fillRect(0,H*0.65,W,H*0.35);
+    // Atmospheric haze near the horizon: soft bright bluish-white,
+    // the way distance softens the lower sky when you stand outside.
+    var haze=ctx.createLinearGradient(0,H*0.60,0,H);
+    haze.addColorStop(0,'rgba(225,236,245,0)');
+    haze.addColorStop(0.45,'rgba(228,238,246,0.14)');
+    haze.addColorStop(0.78,'rgba(234,242,248,0.26)');
+    haze.addColorStop(1,  'rgba(240,246,250,0.38)');
+    ctx.fillStyle=haze;ctx.fillRect(0,H*0.60,W,H*0.40);
 
     // Soft high cirrus — many faint overlapping puffs, wind-stretched
     ctx.save();
