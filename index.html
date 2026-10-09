@@ -37,14 +37,29 @@
     color:#fff;font-family:ui-monospace,'SF Mono',monospace;font-size:10px;
     letter-spacing:0.10em;opacity:0.78;white-space:nowrap;pointer-events:none;
     text-shadow:0 1px 4px rgba(0,0,0,0.6);}
+  .ident{position:absolute;left:50%;bottom:33px;transform:translateX(-50%);
+    display:flex;flex-direction:column;align-items:center;
+    width:max-content;max-width:calc(100% - 32px);text-align:center;
+    color:#fff;font-family:ui-monospace,'SF Mono',monospace;letter-spacing:0.10em;
+    text-shadow:0 1px 3px rgba(0,0,0,0.7);}
+  .ident p{margin:0;}
+  .ident .statement{font-size:11px;line-height:1.6;letter-spacing:0.06em;opacity:0.95;margin-bottom:10px;}
+  .ident .copyright{position:static;transform:none;line-height:1.2;}
+  .ident a{color:inherit;white-space:nowrap;text-decoration:underline;
+    text-decoration-color:rgba(255,255,255,0.45);text-underline-offset:3px;transition:text-decoration-color 0.25s;}
+  .ident a:hover{text-decoration-color:#fff;}
+  @media (max-width:560px){ .ident{bottom:68px;} }
 </style>
 </head>
 <body>
 <div id="stage">
   <canvas id="c" width="1910" height="915"></canvas>
-  <a class="email" href="mailto:info@illustratio.co">info@illustratio.co</a>
+  <a class="about" href="mailto:info@illustratio.co" title="info@illustratio.co">Contact</a>
   <button class="ctl sound" id="soundToggle"><span class="dot"></span><span id="soundLbl">Sound: off</span></button>
-  <div class="copyright">© 2026 Illustratio. All rights reserved.</div>
+  <div class="ident">
+    <p class="statement">Illustratio is the parent company of <a href="https://authenticeffort.com">Authentic Effort™</a>, developer of <a href="https://edgarai2.com">EDGAR AI²™</a>.</p>
+    <div class="copyright">© 2026 Illustratio LLC. All rights reserved.</div>
+  </div>
 </div>
 <script>
 (function(){
